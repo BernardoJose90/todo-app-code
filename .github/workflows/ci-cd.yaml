@@ -13,6 +13,10 @@ env:
   ECR_REPOSITORY: production/todoapp
   GITOPS_REPO: todo-app-gitops
   GITOPS_BRANCH: main
+  MANAGEMENT_ACCOUNT: 573437734468
+  PRODUCTION_ACCOUNT: 175076060567
+  MANAGEMENT_ROLE: arn:aws:iam::573437734468:role/TerraformExecutionRole
+  PRODUCTION_ROLE: arn:aws:iam::175076060567:role/TerraformDeployRole
 
 permissions:
   id-token: write
@@ -26,17 +30,63 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Debug - Show files
+        run: |
+          echo "=== FILES IN REPOSITORY ==="
+          ls -la
+          echo "=== DOCKERFILE EXISTS? ==="
+          test -f Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
+          echo "=== APP DIRECTORY EXISTS? ==="
+          test -d app && echo "✅ app directory found" || echo "❌ app directory missing"
+
+      # STEP 1: Assume Management Account Role via OIDC
+      - name: Configure AWS credentials - Management Account
+        id: mgmt-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: arn:aws:iam::573437734468:role/TerraformExecutionRole
-          role-session-name: GitHubActions-Session
+          role-to-assume: ${{ env.MANAGEMENT_ROLE }}
+          role-session-name: GitHubActions-Management
 
+      - name: Debug - Verify Management Role
+        run: |
+          echo "✅ Successfully assumed Management Role"
+          aws sts get-caller-identity
+
+      # STEP 2: Assume Production Account Role using Management Credentials
+      - name: Assume Production Account Role
+        id: prod-creds
+        run: |
+          # Assume the production role and capture credentials
+          creds=$(aws sts assume-role \
+            --role-arn ${{ env.PRODUCTION_ROLE }} \
+            --role-session-name GitHubActions-Production \
+            --region ${{ env.AWS_REGION }} \
+            --duration-seconds 3600)
+          
+          # Export credentials for subsequent steps
+          echo "AWS_ACCESS_KEY_ID=$(echo $creds | jq -r '.Credentials.AccessKeyId')" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$(echo $creds | jq -r '.Credentials.SecretAccessKey')" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=$(echo $creds | jq -r '.Credentials.SessionToken')" >> $GITHUB_ENV
+          
+          echo "✅ Successfully assumed Production Role"
+
+      - name: Debug - Verify Production Role
+        run: |
+          aws sts get-caller-identity
+          echo "✅ Now working in Production Account: ${{ env.PRODUCTION_ACCOUNT }}"
+
+      # STEP 3: Login to ECR in Production Account
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Debug - ECR Login Successful
+        run: |
+          echo "ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}"
+          echo "✅ Logged into ECR in Production Account"
+
+      # STEP 4: Build and Push Docker Image
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -45,35 +95,101 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          echo "Building image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "✅ Build successful, pushing to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "ECR_REGISTRY=$ECR_REGISTRY" >> $GITHUB_ENV
+          echo "✅ Image pushed successfully"
+
+      # STEP 5: Update GitOps Repository (no AWS credentials needed)
+      - name: Debug - Check GITOPS_TOKEN
+        run: |
+          if [ -n "${{ secrets.GITOPS_TOKEN }}" ]; then
+            echo "✅ GITOPS_TOKEN is set (length: ${#secrets.GITOPS_TOKEN})"
+          else
+            echo "❌ GITOPS_TOKEN is NOT set!"
+            exit 1
+          fi
 
       - name: Clone GitOps repo
         run: |
+          echo "Cloning ${{ env.GITOPS_REPO }}..."
           git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/${{ github.repository_owner }}/${{ env.GITOPS_REPO }}.git
           cd ${{ env.GITOPS_REPO }}
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+          echo "✅ GitOps repo cloned successfully"
+
+      - name: Debug - Check GitOps repo structure
+        run: |
+          cd ${{ env.GITOPS_REPO }}
+          echo "=== GITOPS REPO STRUCTURE ==="
+          ls -la
+          echo "=== CHECKING deployment.yaml ==="
+          if [ -f apps/production/todo-app/deployment.yaml ]; then
+            echo "✅ deployment.yaml found"
+            echo "Current image tag:"
+            grep image apps/production/todo-app/deployment.yaml || echo "No image line found"
+          else
+            echo "❌ deployment.yaml NOT found!"
+            echo "Available files:"
+            find apps -type f 2>/dev/null || echo "No files found"
+            exit 1
+          fi
 
       - name: Update deployment.yaml with new image tag
         run: |
           cd ${{ env.GITOPS_REPO }}
-          # Update the image tag in production deployment
-          sed -i "s|image:.*|image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}|" apps/production/todo-app/deployment.yaml
+          NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+          echo "Updating deployment.yaml with: $NEW_IMAGE"
           
-          # Show the change (for debugging)
-          git diff
+          # Show original
+          echo "Original image line:"
+          grep image apps/production/todo-app/deployment.yaml || true
           
-          # Commit and push changes
+          # Update
+          sed -i "s|image:.*|image: $NEW_IMAGE|" apps/production/todo-app/deployment.yaml
+          
+          # Show updated
+          echo "Updated image line:"
+          grep image apps/production/todo-app/deployment.yaml
+          
           git add apps/production/todo-app/deployment.yaml
+          git diff --staged
+          
           git commit -m "Update todo-app image tag to ${{ env.IMAGE_TAG }} [skip ci]"
-          git push origin ${{ env.GITOPS_BRANCH }}
+          echo "✅ Committed changes"
 
-      - name: Verify deployment
+      - name: Push changes to GitOps repo
         run: |
+          cd ${{ env.GITOPS_REPO }}
+          echo "Pushing to ${{ env.GITOPS_BRANCH }}..."
+          git push origin ${{ env.GITOPS_BRANCH }}
+          echo "✅ GitOps repo updated successfully"
+
+      - name: Final Verification
+        run: |
+          echo ""
+          echo "🎉 ======================== 🎉"
+          echo "    PIPELINE COMPLETE!      "
+          echo "🎉 ======================== 🎉"
+          echo ""
           echo "✅ Image pushed to ECR: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
-          echo "✅ GitOps repo updated. ArgoCD will auto-sync within 3 minutes."
+          echo "✅ GitOps repo updated with new image tag"
+          echo "✅ ArgoCD will auto-sync within 3 minutes"
+          echo ""
+          echo "📊 Summary:"
+          echo "   - Management Account: ${{ env.MANAGEMENT_ACCOUNT }} (OIDC bridge)"
+          echo "   - Production Account: ${{ env.PRODUCTION_ACCOUNT }} (ECR + EKS)"
+          echo "   - Image Tag: ${{ env.IMAGE_TAG }}"
+          echo "   - GitOps Repo: ${{ env.GITOPS_REPO }}"
+          echo ""
+          echo "🔍 Check deployment:"
+          echo "   kubectl get pods -n production"
+          echo "   kubectl get svc -n production"
