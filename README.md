@@ -24,4 +24,4 @@ On push to `main` branch:
 pip install -r requirements.txt
 
 # Run locally
-python main.py
+python main.py# Todo App - CI/CD Test
