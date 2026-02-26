@@ -111,7 +111,7 @@ jobs:
       - name: Debug - Check GITOPS_TOKEN
         run: |
           if [ -n "${{ secrets.GITOPS_TOKEN }}" ]; then
-            echo "✅ GITOPS_TOKEN is set (length: ${#secrets.GITOPS_TOKEN})"
+            echo "✅ GITOPS_TOKEN is set"
           else
             echo "❌ GITOPS_TOKEN is NOT set!"
             exit 1
@@ -153,8 +153,14 @@ jobs:
           echo "Original image line:"
           grep image apps/production/todo-app/deployment.yaml || true
           
-          # Update
-          sed -i "s|image:.*|image: $NEW_IMAGE|" apps/production/todo-app/deployment.yaml
+          # Update - works on both Linux and macOS
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS version
+            sed -i '' "s|image:.*|image: $NEW_IMAGE|" apps/production/todo-app/deployment.yaml
+          else
+            # Linux version (GitHub Actions)
+            sed -i "s|image:.*|image: $NEW_IMAGE|" apps/production/todo-app/deployment.yaml
+          fi
           
           # Show updated
           echo "Updated image line:"

@@ -26,5 +26,5 @@ pip install -r requirements.txt
 # Run locally
 python main.py# Todo App - CI/CD Test
 
-te
+test1
 # Todo App - CI/CD Test
