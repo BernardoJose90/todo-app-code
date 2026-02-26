@@ -1,0 +1,8 @@
+# Python dependencies for your app.
+
+Flask==2.2.5
+Werkzeug==2.2.3
+SQLAlchemy==2.0.22
+PyMySQL==1.1.0
+boto3==1.29.7
+

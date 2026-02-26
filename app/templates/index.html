@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow - Modern Todo App</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/custom.css') }}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Modern Header -->
+    <header class="app-header">
+      <h1 class="app-title">
+        <i class="fas fa-tasks me-3"></i>Task-Flow
+      </h1>
+      <p class="app-subtitle">Streamline Your Productivity With Style</p>
+    </header>
+
+    <!-- Stats Overview -->
+    <div class="row mb-4">
+      <div class="col-md-3">
+        <div class="card stat-card">
+          <div class="card-body text-center">
+            <h3 class="text-primary" id="total-tasks">0</h3>
+            <p class="text-muted mb-0">Total Tasks</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card stat-card">
+          <div class="card-body text-center">
+            <h3 class="text-warning" id="todo-tasks">0</h3>
+            <p class="text-muted mb-0">To Do</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card stat-card">
+          <div class="card-body text-center">
+            <h3 class="text-info" id="progress-tasks">0</h3>
+            <p class="text-muted mb-0">In Progress</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card stat-card">
+          <div class="card-body text-center">
+            <h3 class="text-success" id="done-tasks">0</h3>
+            <p class="text-muted mb-0">Completed</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enhanced Action Bar -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div class="filter-group">
+          <button class="filter-btn active" data-status="All">All Tasks</button>
+          <button class="filter-btn" data-status="Todo">
+            <i class="fas fa-circle me-1"></i>Todo
+          </button>
+          <button class="filter-btn" data-status="In Progress">
+            <i class="fas fa-spinner me-1"></i>In Progress
+          </button>
+          <button class="filter-btn" data-status="Done">
+            <i class="fas fa-check-circle me-1"></i>Done
+          </button>
+        </div>
+        
+        <div class="view-toggle">
+          <button class="view-btn active" data-view="grid">
+            <i class="fas fa-grid"></i> Grid
+          </button>
+          <button class="view-btn" data-view="table">
+            <i class="fas fa-table"></i> Table
+          </button>
+          <button class="view-btn" data-view="kanban">
+            <i class="fas fa-columns"></i> Kanban
+          </button>
+        </div>
+      </div>
+      
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="task-search" placeholder="Search tasks...">
+        </div>
+        
+        <button class="btn btn-primary" id="add-task-btn">
+          <i class="fas fa-plus me-2"></i>New Task
+        </button>
+      </div>
+    </div>
+
+    <!-- Grid View -->
+    <div id="grid-view" class="view-section">
+      <div class="tasks-grid" id="tasks-grid">
+        {% for item in items %}
+        <div class="task-card priority-{{ item.priority|lower }}" data-id="{{ item.id }}" data-status="{{ item.status }}">
+          <div class="task-card-header">
+            <div class="task-meta">
+              <span class="task-id">#{{ item.id }}</span>
+              <span class="task-priority badge bg-{% if item.priority == 'High' %}danger{% elif item.priority == 'Medium' %}warning{% else %}success{% endif %}">
+                {{ item.priority }}
+              </span>
+            </div>
+            <div class="task-actions">
+              <button class="btn btn-sm btn-icon edit" data-id="{{ item.id }}" title="Edit">
+                <i class="fas fa-edit"></i>
+              </button>
+              <button class="btn btn-sm btn-icon delete" data-id="{{ item.id }}" title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="task-content">
+            <h4 class="task-title">{{ item.description }}</h4>
+            
+            <div class="task-progress">
+              <div class="progress">
+                <div class="progress-bar 
+                  {% if item.status == 'Done' %}progress-done
+                  {% elif item.status == 'In Progress' %}progress-in-progress
+                  {% else %}progress-todo{% endif %}">
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="task-footer">
+            <div class="task-status">
+              <span class="status-indicator status-{{ item.status|lower|replace(' ', '-') }}"></span>
+              {{ item.status }}
+            </div>
+            <div class="task-due">
+              {% if item.due_date %}
+              <i class="far fa-clock"></i>
+              <span class="due-date">{{ item.due_date }}</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Table View -->
+    <div id="table-view" class="view-section" style="display: none;">
+      <div class="card table-modern">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th width="50">#</th>
+                <th>Task</th>
+                <th width="120">Status</th>
+                <th width="100">Priority</th>
+                <th width="120">Due Date</th>
+                <th width="120">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="task-table-body">
+              {% for item in items %}
+              <tr class="fade-in priority-{{ item.priority|lower }}"
+                  data-id="{{ item.id }}" 
+                  data-status="{{ item.status }}">
+                <td class="fw-bold text-muted">#{{ item.id }}</td>
+                <td>
+                  <div class="task-content">
+                    <div class="fw-semibold">{{ item.description }}</div>
+                    {% if item.due_date %}
+                    <small class="text-muted">
+                      <i class="far fa-clock me-1"></i>{{ item.due_date }}
+                    </small>
+                    {% endif %}
+                  </div>
+                </td>
+                <td>
+                  <span class="status-badge status-{{ item.status|lower|replace(' ', '-') }}">
+                    {{ item.status }}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge bg-{% if item.priority == 'High' %}danger{% elif item.priority == 'Medium' %}warning{% else %}success{% endif %}">
+                    {{ item.priority }}
+                  </span>
+                </td>
+                <td>
+                  {% if item.due_date %}
+                  <span class="text-muted">{{ item.due_date }}</span>
+                  {% else %}
+                  <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary edit" data-id="{{ item.id }}" title="Edit">
+                      <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-outline-danger delete" data-id="{{ item.id }}" title="Delete">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kanban View -->
+    <div id="kanban-view" class="view-section" style="display: none;">
+      <div class="kanban-board">
+        <div class="kanban-column" data-status="Todo">
+          <div class="column-header">
+            <h3><i class="fas fa-circle me-2"></i>To Do</h3>
+            <span class="task-count" id="todo-count">0</span>
+          </div>
+          <div class="kanban-cards" data-status="Todo">
+            {% for item in items if item.status == "Todo" %}
+            <div class="task-card priority-{{ item.priority|lower }}" data-id="{{ item.id }}">
+              <div class="task-card-header">
+                <div class="task-meta">
+                  <span class="task-id">#{{ item.id }}</span>
+                  <span class="task-priority badge bg-{% if item.priority == 'High' %}danger{% elif item.priority == 'Medium' %}warning{% else %}success{% endif %}">
+                    {{ item.priority }}
+                  </span>
+                </div>
+              </div>
+              <div class="task-content">
+                <h4 class="task-title">{{ item.description }}</h4>
+              </div>
+              <div class="task-footer">
+                <div class="task-due">
+                  {% if item.due_date %}
+                  <i class="far fa-clock"></i>
+                  <span class="due-date">{{ item.due_date }}</span>
+                  {% endif %}
+                </div>
+                <div class="task-actions">
+                  <button class="btn btn-sm btn-icon edit" data-id="{{ item.id }}">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-sm btn-icon delete" data-id="{{ item.id }}">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <div class="kanban-column" data-status="In Progress">
+          <div class="column-header">
+            <h3><i class="fas fa-spinner me-2"></i>In Progress</h3>
+            <span class="task-count" id="progress-count">0</span>
+          </div>
+          <div class="kanban-cards" data-status="In Progress">
+            {% for item in items if item.status == "In Progress" %}
+            <div class="task-card priority-{{ item.priority|lower }}" data-id="{{ item.id }}">
+              <div class="task-card-header">
+                <div class="task-meta">
+                  <span class="task-id">#{{ item.id }}</span>
+                  <span class="task-priority badge bg-{% if item.priority == 'High' %}danger{% elif item.priority == 'Medium' %}warning{% else %}success{% endif %}">
+                    {{ item.priority }}
+                  </span>
+                </div>
+              </div>
+              <div class="task-content">
+                <h4 class="task-title">{{ item.description }}</h4>
+              </div>
+              <div class="task-footer">
+                <div class="task-due">
+                  {% if item.due_date %}
+                  <i class="far fa-clock"></i>
+                  <span class="due-date">{{ item.due_date }}</span>
+                  {% endif %}
+                </div>
+                <div class="task-actions">
+                  <button class="btn btn-sm btn-icon edit" data-id="{{ item.id }}">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-sm btn-icon delete" data-id="{{ item.id }}">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <div class="kanban-column" data-status="Done">
+          <div class="column-header">
+            <h3><i class="fas fa-check-circle me-2"></i>Done</h3>
+            <span class="task-count" id="done-count">0</span>
+          </div>
+          <div class="kanban-cards" data-status="Done">
+            {% for item in items if item.status == "Done" %}
+            <div class="task-card priority-{{ item.priority|lower }}" data-id="{{ item.id }}">
+              <div class="task-card-header">
+                <div class="task-meta">
+                  <span class="task-id">#{{ item.id }}</span>
+                  <span class="task-priority badge bg-{% if item.priority == 'High' %}danger{% elif item.priority == 'Medium' %}warning{% else %}success{% endif %}">
+                    {{ item.priority }}
+                  </span>
+                </div>
+              </div>
+              <div class="task-content">
+                <h4 class="task-title">{{ item.description }}</h4>
+              </div>
+              <div class="task-footer">
+                <div class="task-due">
+                  {% if item.due_date %}
+                  <i class="far fa-clock"></i>
+                  <span class="due-date">{{ item.due_date }}</span>
+                  {% endif %}
+                </div>
+                <div class="task-actions">
+                  <button class="btn btn-sm btn-icon edit" data-id="{{ item.id }}">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-sm btn-icon delete" data-id="{{ item.id }}">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="empty-state" style="display: none;">
+      <i class="fas fa-clipboard-list"></i>
+      <h4>No tasks found</h4>
+      <p>Get started by creating your first task!</p>
+      <button class="btn btn-primary" id="add-task-btn-empty">
+        <i class="fas fa-plus me-2"></i>New Task
+      </button>
+    </div>
+  </div>
+
+  <!-- Modern Modal -->
+  <div class="modal fade" id="task-modal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="fas fa-tasks me-2"></i>
+            <span id="modal-title">Add New Task</span>
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="task-form">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Task Description</label>
+              <input type="text" id="task-desc" class="form-control" placeholder="What needs to be done?" required>
+            </div>
+            
+            <div class="row">
+              <div class="col-md-6">
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Status</label>
+                  <select id="task-status" class="form-select">
+                    <option value="Todo">📝 Todo</option>
+                    <option value="In Progress">🔄 In Progress</option>
+                    <option value="Done">✅ Done</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Priority</label>
+                  <select id="task-priority" class="form-select">
+                    <option value="Low">🟢 Low</option>
+                    <option value="Medium" selected>🟡 Medium</option>
+                    <option value="High">🔴 High</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Due Date</label>
+              <input type="date" id="task-due-date" class="form-control">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="submit-task">
+            <i class="fas fa-save me-2"></i>Save Task
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='script/modal.js') }}"></script>
+  
+  <script>
+    // Update stats
+    function updateStats() {
+      const total = document.querySelectorAll('.task-card:not([style*="display: none"]), #task-table-body tr:not([style*="display: none"])').length;
+      const todo = document.querySelectorAll('.task-card[data-status="Todo"]:not([style*="display: none"]), #task-table-body tr[data-status="Todo"]:not([style*="display: none"])').length;
+      const progress = document.querySelectorAll('.task-card[data-status="In Progress"]:not([style*="display: none"]), #task-table-body tr[data-status="In Progress"]:not([style*="display: none"])').length;
+      const done = document.querySelectorAll('.task-card[data-status="Done"]:not([style*="display: none"]), #task-table-body tr[data-status="Done"]:not([style*="display: none"])').length;
+      
+      document.getElementById('total-tasks').textContent = total;
+      document.getElementById('todo-tasks').textContent = todo;
+      document.getElementById('progress-tasks').textContent = progress;
+      document.getElementById('done-tasks').textContent = done;
+      
+      // Update kanban counts
+      document.getElementById('todo-count').textContent = todo;
+      document.getElementById('progress-count').textContent = progress;
+      document.getElementById('done-count').textContent = done;
+      
+      // Show empty state if no tasks.
+      document.getElementById('empty-state').style.display = total === 0 ? 'block' : 'none';
+    }
+
+    // Initialize stats
+    updateStats();
+  </script>
+
+</body>
+</html>

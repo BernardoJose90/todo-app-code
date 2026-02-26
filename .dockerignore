@@ -1,0 +1,11 @@
+.git
+.github
+README.md
+k8s/
+Eks-cluster-config-dev.yaml
+*.pyc
+__pycache__/
+.env
+.DS_Store
+*.log
+instance/

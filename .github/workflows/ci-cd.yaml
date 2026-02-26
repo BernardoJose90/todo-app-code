@@ -1,0 +1,79 @@
+name: CI/CD Pipeline - Build and Push to ECR
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - '.dockerignore'
+      - '.gitignore'
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY: production/todoapp
+  GITOPS_REPO: todo-app-gitops
+  GITOPS_BRANCH: main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::573437734468:role/TerraformExecutionRole
+          role-session-name: GitHubActions-Session
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "ECR_REGISTRY=$ECR_REGISTRY" >> $GITHUB_ENV
+
+      - name: Clone GitOps repo
+        run: |
+          git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/${{ github.repository_owner }}/${{ env.GITOPS_REPO }}.git
+          cd ${{ env.GITOPS_REPO }}
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Update deployment.yaml with new image tag
+        run: |
+          cd ${{ env.GITOPS_REPO }}
+          # Update the image tag in production deployment
+          sed -i "s|image:.*|image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}|" apps/production/todo-app/deployment.yaml
+          
+          # Show the change (for debugging)
+          git diff
+          
+          # Commit and push changes
+          git add apps/production/todo-app/deployment.yaml
+          git commit -m "Update todo-app image tag to ${{ env.IMAGE_TAG }} [skip ci]"
+          git push origin ${{ env.GITOPS_BRANCH }}
+
+      - name: Verify deployment
+        run: |
+          echo "✅ Image pushed to ECR: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+          echo "✅ GitOps repo updated. ArgoCD will auto-sync within 3 minutes."
